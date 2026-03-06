@@ -53,16 +53,6 @@ warnings.filterwarnings("ignore")
 
 
 def load_and_preprocess(data_source):
-    """
-    自动识别并加载数据集（CSV文件或UCI数据集），并自动处理类别型特征和缺失值。
-
-    Args:
-        data_source (str): 数据源路径或UCI数据集名称
-
-    Returns:
-        tuple: 处理后的特征矩阵X和标签向量y
-    """
-    # 定义支持的30种UCI数据集
     uci_datasets = {
         # 二分类数据集（按样本量从小到大排序）
         'chess': lambda: fetch_ucirepo(id=22).data,  # King-Rook vs. King - 3196条
@@ -73,14 +63,11 @@ def load_and_preprocess(data_source):
     }
 
     if data_source.endswith('.csv'):
-        # 加载CSV文件
         data = pd.read_csv(data_source)
         X = data.iloc[:, :-1].values
         y = data.iloc[:, -1].values
     elif data_source in uci_datasets:
-        # 加载UCI标准数据集
         try:
-            # 使用ucimlrepo加载器
             from ucimlrepo import fetch_ucirepo
             dataset_func = uci_datasets[data_source]
             dataset = dataset_func()
@@ -108,7 +95,7 @@ def load_and_preprocess(data_source):
         # 判断是否为类别型（对象类型或布尔类型）
         if X_df[col].dtype == 'object' or X_df[col].dtype == 'bool':
             le = LabelEncoder()
-            # 在编码前处理该列的缺失值（用众数填充，避免编码时出现NaN）
+            # 在编码前处理缺失值
             if X_df[col].isna().any():
                 mode_val = X_df[col].mode()
                 fill_value = mode_val[0] if not mode_val.empty else 'missing'
@@ -118,7 +105,7 @@ def load_and_preprocess(data_source):
             label_encoders_X[col] = le  # 保存编码器
             print(f"提示: 特征列 {col} 为类别型，已使用LabelEncoder进行编码。")
 
-    # 2. 处理标签y中的类别型数据（如果y不是数值型）
+    # 2. 处理标签y中的类别型数据
     label_encoder_y = None
     if y_series.dtype == 'object' or y_series.dtype == 'bool':
         label_encoder_y = LabelEncoder()
@@ -130,8 +117,8 @@ def load_and_preprocess(data_source):
         y_series = pd.Series(label_encoder_y.fit_transform(y_series.astype(str)))
         print(f"提示: 标签y为类别型，已使用LabelEncoder进行编码。")
 
-    # 3. 处理数值型特征的缺失值（使用均值填充）
-    # 首先确保所有列都是数值类型（经过上一步编码，应该都是了）
+    # 3. 处理数值型特征的缺失值
+    # 首先确保所有列都是数值类型
     for col in X_df.columns:
         if pd.api.types.is_numeric_dtype(X_df[col]):
             if X_df[col].isna().any():
@@ -139,25 +126,22 @@ def load_and_preprocess(data_source):
                 X_df[col] = X_df[col].fillna(col_mean)
                 print(f"提示: 特征列 {col} 存在缺失值，已使用均值 {col_mean:.4f} 填充。")
         else:
-            # 如果仍有非数值型，尝试强制转换（理论上不会进入此分支）
+            # 如果仍有非数值型，进行强制转换
             try:
                 X_df[col] = pd.to_numeric(X_df[col], errors='coerce')
-                # 转换后可能产生新的NaN，再次用均值填充
                 if X_df[col].isna().any():
                     col_mean = X_df[col].mean()
                     X_df[col] = X_df[col].fillna(col_mean)
             except:
                 raise ValueError(f"特征列 {col} 无法转换为数值型。")
 
-    # 4. 处理标签y中的缺失值（如果y是数值型）
+    # 4. 处理标签y中的缺失值
     if pd.api.types.is_numeric_dtype(y_series):
         if y_series.isna().any():
-            # 对于数值型标签，使用均值填充
             y_mean = y_series.mean()
             y_series = y_series.fillna(y_mean)
             print(f"提示: 标签y存在缺失值，已使用均值 {y_mean:.4f} 填充。")
     else:
-        # 对于非数值型标签（应已在上一步编码），使用众数填充
         if y_series.isna().any():
             mode_val = y_series.mode()
             fill_value = mode_val[0] if not mode_val.empty else y_series.iloc[0]
@@ -175,19 +159,14 @@ def load_and_preprocess(data_source):
     X_processed = scaler.fit_transform(X_processed)
     # print("归一化处理后的特征方差:", np.var(normalized_features, axis=0))
 
-    # 确保X和y是纯数值且无缺失
-    X_processed = X_df.values.astype(float)  # 转换为float类型的NumPy数组
+    X_processed = X_df.values.astype(float) 
     y_processed = y_series.values
 
     if np.isnan(X_processed).any():
-        # 如果还有NaN，可能是全NaN列，用0填充
         X_processed = np.nan_to_num(X_processed, nan=0.0)
-        print("警告: 存在全NaN特征列，已用0填充。")
     if np.isnan(y_processed).any():
         y_processed = np.nan_to_num(y_processed, nan=0.0)
-        print("警告: 标签y中存在无法处理的NaN，已用0填充。")
 
-    # 最终检查
     if not np.issubdtype(X_processed.dtype, np.number):
         raise ValueError(f"数据集 '{data_source}' 预处理后仍包含非数值型特征。")
     if np.isnan(X_processed).any() or np.isnan(y_processed).any():
@@ -209,7 +188,7 @@ def dominance_relation(x, y, weights, epsilon=1e-6):
 
 def generate_granular_balls(data, decisions, weights, purity_threshold):
     """
-    改进的粒球生成函数，去除单对象粒球后进行K-means聚类
+    粒球生成函数，去除单对象粒球后进行K-means聚类
 
     参数:
         data: 样本特征矩阵
@@ -224,18 +203,16 @@ def generate_granular_balls(data, decisions, weights, purity_threshold):
     n_samples = data.shape[0]
     initial_granular_balls = []
 
-    # 1. 首先生成初始粒球集
+    # 1. 生成初始粒球集
     # 向量化优势关系计算
-    # 预计算加权数据
     weighted_data = data * weights
 
     # 使用广播机制一次性计算所有样本对的关系
-    # 创建布尔矩阵，表示每个样本支配哪些其他样本
     dominance_matrix = np.all(weighted_data[:, np.newaxis, :] >= weighted_data[np.newaxis, :, :] - 1e-6, axis=2)
 
     # 并行化粒球生成
     for i in range(n_samples):
-        # 直接从矩阵中获取支配关系
+        # 直接从矩阵中获取优势关系
         dominated = np.where(dominance_matrix[i])[0].tolist()
 
         if len(dominated) <= 1:
@@ -274,7 +251,7 @@ def generate_granular_balls(data, decisions, weights, purity_threshold):
 
     non_outlier_data = data[list(non_outlier_indices)]
 
-    # 4. 执行K-means聚类
+    # 4. K-means聚类
     k = len(filtered_balls)  # 聚类簇数等于过滤后的粒球数
     initial_centroids = np.array([ball['center'] for ball in filtered_balls])
 
@@ -353,18 +330,17 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
     fig = plt.figure(figsize=(7, 5))
     ax = fig.add_subplot(111, projection='3d')
 
-    # 使用更美观的配色方案
     unique_decisions = np.unique(decisions)
     colors = plt.cm.viridis(np.linspace(0, 1, len(unique_decisions)))
 
-    # 绘制样本点(更精细的样式)
+    # 绘制样本点
     for cls, color in zip(unique_decisions, colors):
         cls_data = reduced_data[decisions == cls]
         ax.scatter(cls_data[:, 0], cls_data[:, 1], cls_data[:, 2],
                    c=[color], label=f'Class {cls}', alpha=0.5, s=20,
                    edgecolors='w', linewidth=0.5)
 
-    # 绘制大粒球(增强视觉效果)
+    # 绘制粒球
     large_balls_count = 0
     for ball in granular_balls:
         if ball['radius'] < min_radius:
@@ -374,7 +350,7 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
         center = ball['center'][top3_idx]
         radius = ball['radius']
 
-        # 生成球面网格(更精细)
+        # 生成球面网格
         u = np.linspace(0, 2 * np.pi, 30)
         v = np.linspace(0, np.pi, 30)
         x = radius * np.outer(np.cos(u), np.sin(v)) + center[0]
@@ -386,15 +362,15 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
         ax.plot_surface(x, y, z, color=color, alpha=0.25,
                         linewidth=0.5, antialiased=True, shade=True)
 
-        # 添加边缘线增强立体感
+        # 添加边缘线
         ax.plot_wireframe(x, y, z, color=color, alpha=0.1, linewidth=0.5)
 
-    # 设置美观的标签和标题
+    # 设置标签和标题
     ax.set_xlabel(f'Feature {top3_idx[0]}', fontsize=12, labelpad=10)
     ax.set_ylabel(f'Feature {top3_idx[1]}', fontsize=12, labelpad=10)
     ax.set_zlabel(f'Feature {top3_idx[2]}', fontsize=12, labelpad=10)
 
-    # 设置美观的图例
+    # 设置图例
     legend = ax.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
     for handle in legend.legendHandles:
         handle.set_sizes([50])
@@ -445,7 +421,7 @@ def calculate_dependency(granular_balls, data, decisions, attribute_idx, purity_
         # 使用预计算的原始正域，无需再次循环计算
         original_set = original_positive[cls]
 
-        # 移除当前属性后的正域（此部分无法避免，需为每个属性单独计算）
+        # 移除当前属性后的正域
         reduced_data = np.delete(data, attribute_idx, axis=1)
         reduced_weights = np.ones(reduced_data.shape[1])
         reduced_balls = generate_granular_balls(reduced_data, decisions, reduced_weights, purity_threshold)
@@ -465,7 +441,7 @@ def calculate_dependency(granular_balls, data, decisions, attribute_idx, purity_
 def calculate_attribute_weights(data, decisions, granular_balls, purity_threshold):
     n_attributes = data.shape[1]
 
-    # 1. 预计算原始正域（只需计算一次）
+    # 1. 预计算原始正域
     print("预计算原始正域...")
     original_positive = precompute_positive_regions(granular_balls, data, decisions)
 
@@ -531,9 +507,9 @@ def calculate_attribute_weights(data, decisions, granular_balls, purity_threshol
         return total_dependency / n_classes
 
     # 4. 并行计算
-    cpu_count = multiprocessing.cpu_count()
-    max_workers = min(n_attributes, max(1, cpu_count - 1))  # 保留一个核心给系统
-    print("max_workers", max_workers)
+    # cpu_count = multiprocessing.cpu_count()
+    # max_workers = min(n_attributes, max(1, cpu_count - 1))
+    # print("max_workers", max_workers)
 
     # with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -981,4 +957,5 @@ if __name__ == "__main__":
     main(file=dataset, ZZZZ=24)
 
     tis2 = time.perf_counter()
+
     print('Running time: %s Seconds', tis2 - tis1)
