@@ -53,11 +53,9 @@ warnings.filterwarnings("ignore")
 def load_and_preprocess(file):
     # 统一数据加载逻辑
     try:
-        # CSV文件处理
         features = file.iloc[:, :-1]
         decisions = file.iloc[:, -1].values
     except:
-        # UCI数据集处理
         features = pd.DataFrame(file.data.features)
         decisions = file.data.targets.values
 
@@ -78,13 +76,13 @@ def load_and_preprocess(file):
     # 确保决策值与特征行对应
     decisions = decisions[features.index]
 
-    # 统一空列检测（同时适用于两种数据源）
+    # 空列检测
     empty_cols = features.columns[features.isna().all()].tolist()
     if empty_cols:
         print(f"检测到并删除空列: {empty_cols}")
         features = features.drop(columns=empty_cols)
 
-    # 在空列检测后添加低方差特征过滤
+    # 低方差特征过滤
     from sklearn.feature_selection import VarianceThreshold
     # print("原始数据的特征方差:", np.var(features, axis=0))
     selector = VarianceThreshold(threshold=0.01)  # 过滤方差<0.01的特征
@@ -103,13 +101,12 @@ def dominance_relation(x, y, weights, epsilon=1e-6):
     定义优势关系：x支配y当且仅当在所有属性上x≥y
     """
     # 引入容差机制，避免数值波动影响
-
     return np.all(x * weights >= y * weights - epsilon)
 
 
 def generate_granular_balls(data, decisions, weights, purity_threshold):
     """
-    改进的粒球生成函数，去除单对象粒球后进行K-means聚类
+    粒球生成函数，去除单对象粒球后进行K-means聚类
 
     参数:
         data: 样本特征矩阵
@@ -124,7 +121,7 @@ def generate_granular_balls(data, decisions, weights, purity_threshold):
     n_samples = data.shape[0]
     initial_granular_balls = []
 
-    # 1. 首先生成初始粒球集
+    # 1. 生成初始粒球集
     for i in range(n_samples):
         dominated = [j for j in range(n_samples)
                      if dominance_relation(data[i], data[j], weights)]
@@ -243,18 +240,17 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
     fig = plt.figure(figsize=(7, 5))
     ax = fig.add_subplot(111, projection='3d')
 
-    # 使用更美观的配色方案
     unique_decisions = np.unique(decisions)
     colors = plt.cm.viridis(np.linspace(0, 1, len(unique_decisions)))
 
-    # 绘制样本点(更精细的样式)
+    # 绘制样本点
     for cls, color in zip(unique_decisions, colors):
         cls_data = reduced_data[decisions == cls]
         ax.scatter(cls_data[:, 0], cls_data[:, 1], cls_data[:, 2],
                    c=[color], label=f'Class {cls}', alpha=0.5, s=20,
                    edgecolors='w', linewidth=0.5)
 
-    # 绘制大粒球(增强视觉效果)
+    # 绘制粒球
     large_balls_count = 0
     for ball in granular_balls:
         if ball['radius'] < min_radius:
@@ -264,7 +260,7 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
         center = ball['center'][top3_idx]
         radius = ball['radius']
 
-        # 生成球面网格(更精细)
+        # 生成球面网格
         u = np.linspace(0, 2 * np.pi, 30)
         v = np.linspace(0, np.pi, 30)
         x = radius * np.outer(np.cos(u), np.sin(v)) + center[0]
@@ -276,15 +272,15 @@ def plot_granular_balls_3d(granular_balls, data, decisions, weights, min_radius=
         ax.plot_surface(x, y, z, color=color, alpha=0.25,
                         linewidth=0.5, antialiased=True, shade=True)
 
-        # 添加边缘线增强立体感
+        # 添加边缘线
         ax.plot_wireframe(x, y, z, color=color, alpha=0.1, linewidth=0.5)
 
-    # 设置美观的标签和标题
+    # 设置标签和标题
     ax.set_xlabel(f'Feature {top3_idx[0]}', fontsize=12, labelpad=10)
     ax.set_ylabel(f'Feature {top3_idx[1]}', fontsize=12, labelpad=10)
     ax.set_zlabel(f'Feature {top3_idx[2]}', fontsize=12, labelpad=10)
 
-    # 设置美观的图例
+    # 设置图例
     legend = ax.legend(fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
     for handle in legend.legendHandles:
         handle.set_sizes([50])
@@ -831,4 +827,5 @@ if __name__ == "__main__":
 
 
     tis2 = time.perf_counter()
+
     print('Running time: %s Seconds', tis2 - tis1)
